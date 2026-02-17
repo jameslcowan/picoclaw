@@ -150,6 +150,17 @@ func TestDefaultConfig_WebTools(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_MCPTools(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg.Tools.MCP.Enabled {
+		t.Error("MCP tools should be disabled by default")
+	}
+	if cfg.Tools.MCP.Servers == nil {
+		t.Error("MCP servers map should be initialized")
+	}
+}
+
 func TestSaveConfig_FilePermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("file permission bits are not enforced on Windows")
@@ -202,5 +213,60 @@ func TestConfig_Complete(t *testing.T) {
 	}
 	if !cfg.Heartbeat.Enabled {
 		t.Error("Heartbeat should be enabled by default")
+	}
+}
+
+func TestLoadConfig_LegacyMCPServersCompatibility(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	configJSON := `{
+	  "agents": {
+	    "defaults": {
+	      "workspace": "~/.picoclaw/workspace",
+	      "model": "test-model",
+	      "max_tokens": 1024,
+	      "temperature": 0.7,
+	      "max_tool_iterations": 10
+	    }
+	  },
+	  "mcpServers": {
+	    "context7": {
+	      "type": "stdio",
+	      "protocol": "jsonl",
+	      "command": "npx",
+	      "args": ["-y", "@upstash/context7-mcp", "--api-key", "test-key"]
+	    }
+	  }
+	}`
+
+	if err := os.WriteFile(configPath, []byte(configJSON), 0600); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if !cfg.Tools.MCP.Enabled {
+		t.Fatal("Tools.MCP should be enabled from legacy mcpServers")
+	}
+
+	server, ok := cfg.Tools.MCP.Servers["context7"]
+	if !ok {
+		t.Fatal("context7 server not mapped from legacy mcpServers")
+	}
+	if !server.Enabled {
+		t.Fatal("context7 server should be enabled")
+	}
+	if server.Command != "npx" {
+		t.Fatalf("context7 command = %q, want npx", server.Command)
+	}
+	if server.Protocol != "jsonl" {
+		t.Fatalf("context7 protocol = %q, want jsonl", server.Protocol)
+	}
+	if len(server.Args) == 0 {
+		t.Fatal("context7 args should be mapped")
 	}
 }
